@@ -6,6 +6,9 @@ Thread-safety: FastAPI runs handlers in a thread-pool (sync) or on the
 event loop (async).  Because a single GPU cannot run two kernels at the
 same time, inference is serialised via a threading.Lock so concurrent
 requests are queued rather than producing CUDA OOM errors.
+
+Stability: after every generation the CUDA cache is trimmed so that
+long audiobook pipelines do not accumulate fragmented GPU memory.
 """
 
 from __future__ import annotations
@@ -101,6 +104,22 @@ class ModelManager:
             return []
         return list(self._model.get_supported_languages())
 
+    # ── CUDA housekeeping ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _trim_cuda_cache() -> None:
+        """Free unused CUDA memory after each generation.
+
+        For long audiobook pipelines this prevents fragmentation from slowly
+        consuming all VRAM across hundreds of sequential generations.
+        """
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     # ── Inference ─────────────────────────────────────────────────────────────
 
     def _assert_loaded(self) -> None:
@@ -127,6 +146,7 @@ class ModelManager:
                 instruct=instruct or ([""] * len(text) if isinstance(text, list) else ""),
                 **kwargs,
             )
+            self._trim_cuda_cache()
         return wavs, sr
 
     def generate_voice_design(
@@ -147,6 +167,7 @@ class ModelManager:
                 instruct=instruct,
                 **kwargs,
             )
+            self._trim_cuda_cache()
         return wavs, sr
 
     def generate_voice_clone(
@@ -171,6 +192,7 @@ class ModelManager:
                 x_vector_only_mode=x_vector_only,
                 **kwargs,
             )
+            self._trim_cuda_cache()
         return wavs, sr
 
     # ── Audio encoding ────────────────────────────────────────────────────────

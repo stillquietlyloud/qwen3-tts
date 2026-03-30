@@ -2,11 +2,13 @@
 OpenAI-compatible TTS endpoint.
 
 POST /v1/audio/speech
-  body: { "model": "...", "input": "...", "voice": "Ryan", "response_format": "wav" }
+  body: { "model": "...", "input": "...", "voice": "narrator-omniscient", "response_format": "wav" }
   Returns: raw audio bytes with the appropriate Content-Type header.
 
 This endpoint auto-routes to the correct generation method based on which
-model variant is currently loaded.
+model variant is currently loaded.  For VoiceDesign models, the ``voice``
+field can be a template ID, a free-form voice description, or left empty
+to use the server default.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ from fastapi.responses import Response
 from .. import config
 from ..model_manager import manager
 from ..schemas import AudioFormat, Language, OpenAISpeechRequest
+from ..voice_templates import build_instruct, get_template
 from .auth import verify_api_key
 
 logger = logging.getLogger("tts.speech")
@@ -31,6 +34,39 @@ _MIME = {
     "ogg": "audio/ogg",
     "flac": "audio/flac",
 }
+
+
+def _resolve_voice_design_instruct(req: OpenAISpeechRequest) -> str:
+    """Build the instruct string for a VoiceDesign request.
+
+    Resolution order:
+    1. If ``template_id`` is set, use the template instruct as the base.
+    2. Else if ``voice`` matches a known template ID, use that template.
+    3. Else if ``voice`` is a non-empty string, treat it as a raw instruct.
+    4. Fall back to the server's DEFAULT_VOICE_INSTRUCT.
+
+    ``emotion``, ``pace``, and ``instruct`` are always layered on top.
+    """
+    template_id = req.template_id
+    base_instruct = None
+
+    if not template_id and req.voice:
+        # Check if voice is actually a template ID
+        if get_template(req.voice):
+            template_id = req.voice
+        else:
+            base_instruct = req.voice
+
+    if not template_id and not base_instruct:
+        base_instruct = config.DEFAULT_VOICE_INSTRUCT
+
+    return build_instruct(
+        template_id=template_id,
+        base_instruct=base_instruct,
+        emotion=req.emotion,
+        pace=req.pace,
+        extra=req.instruct,
+    )
 
 
 @router.post(
@@ -48,8 +84,7 @@ def create_speech(req: OpenAISpeechRequest) -> Response:
 
     try:
         if manager.model_type == "VoiceDesign":
-            # Use voice field as the instruct description
-            instruct = req.instruct or req.voice or "A warm, clear English narrator."
+            instruct = _resolve_voice_design_instruct(req)
             wavs, sr = manager.generate_voice_design(
                 text=req.input,
                 language=language,
@@ -73,6 +108,8 @@ def create_speech(req: OpenAISpeechRequest) -> Response:
                 instruct=req.instruct,
                 max_new_tokens=max_new_tokens,
             )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         logger.exception("Inference error")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

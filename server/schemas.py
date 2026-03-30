@@ -53,15 +53,16 @@ class OpenAISpeechRequest(BaseModel):
     """Compatible with the OpenAI Audio Speech API."""
 
     model: str = Field(
-        default="Qwen3-TTS-12Hz-1.7B-CustomVoice",
+        default="Qwen3-TTS-12Hz-1.7B-VoiceDesign",
         description="TTS model identifier (ignored; the server uses whatever model is loaded).",
     )
     input: str = Field(..., description="Text to synthesise.")
     voice: str = Field(
-        default="Ryan",
+        default="",
         description=(
-            "Speaker name for CustomVoice models or a natural-language voice "
-            "description for VoiceDesign models."
+            "For VoiceDesign: a natural-language voice description, or a "
+            "voice-template ID (e.g. 'narrator-omniscient'). "
+            "For CustomVoice: a speaker name (e.g. 'Ryan')."
         ),
     )
     response_format: AudioFormat = Field(
@@ -82,6 +83,28 @@ class OpenAISpeechRequest(BaseModel):
     instruct: Optional[str] = Field(
         default=None,
         description="Natural-language style instruction, e.g. 'Speak in a warm, soothing tone.'",
+    )
+    template_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Voice template ID (e.g. 'narrator-omniscient', 'char-villain'). "
+            "When set, the template's instruct is used as the base voice, and "
+            "'instruct' becomes an additional modifier layered on top."
+        ),
+    )
+    emotion: Optional[str] = Field(
+        default=None,
+        description=(
+            "Emotion modifier key (e.g. 'joy', 'anger', 'fear'). "
+            "Appended to the instruct to colour the delivery."
+        ),
+    )
+    pace: Optional[str] = Field(
+        default=None,
+        description=(
+            "Pace modifier key (e.g. 'slow', 'fast', 'variable'). "
+            "Appended to the instruct to control delivery speed."
+        ),
     )
 
 
@@ -110,12 +133,27 @@ class CustomVoiceRequest(BaseModel):
 class VoiceDesignRequest(BaseModel):
     text: str | List[str] = Field(..., description="Text(s) to synthesise.")
     language: Language | List[Language] = Field(default=Language.english)
-    instruct: str | List[str] = Field(
-        ...,
+    instruct: Optional[str | List[str]] = Field(
+        default=None,
         description=(
-            "Natural-language description of the desired voice, e.g. "
-            "'A warm British male narrator with a calm, measured pace.'"
+            "Natural-language description of the desired voice. "
+            "If template_id is also provided, this is appended as an extra modifier."
         ),
+    )
+    template_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Voice template ID (e.g. 'narrator-omniscient', 'char-villain'). "
+            "Use GET /v1/tts/voice-templates to list all available templates."
+        ),
+    )
+    emotion: Optional[str] = Field(
+        default=None,
+        description="Emotion modifier key (e.g. 'joy', 'anger', 'fear', 'tenderness').",
+    )
+    pace: Optional[str] = Field(
+        default=None,
+        description="Pace modifier key (e.g. 'slow', 'fast', 'variable').",
     )
     response_format: AudioFormat = Field(default=AudioFormat.wav)
     max_new_tokens: Optional[int] = Field(default=None, ge=1)
