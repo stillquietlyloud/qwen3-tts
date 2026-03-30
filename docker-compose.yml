@@ -1,0 +1,70 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Qwen3-TTS API Server – docker-compose.yml
+#
+# Usage:
+#   docker compose up -d          # start in background
+#   docker compose logs -f        # stream logs
+#   docker compose down           # stop
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  qwen3-tts:
+    build: .
+    image: qwen3-tts-server:latest
+    container_name: qwen3-tts
+    restart: unless-stopped
+
+    # ── GPU access ────────────────────────────────────────────────────────────
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    # ── Ports ─────────────────────────────────────────────────────────────────
+    ports:
+      - "8000:8000"
+
+    # ── Volumes ───────────────────────────────────────────────────────────────
+    volumes:
+      # Persist downloaded model weights across restarts
+      - model_cache:/model_cache
+      # Optional: mount a local audio directory for voice-clone reference files
+      # - ./audio:/audio:ro
+
+    # ── Environment ───────────────────────────────────────────────────────────
+    environment:
+      TTS_HOST: "0.0.0.0"
+      TTS_PORT: "8000"
+      TTS_DEVICE: "cuda:0"
+      TTS_DTYPE: "bfloat16"
+      TTS_FLASH_ATTN: "1"
+      # Change to VoiceDesign or Base as needed:
+      TTS_DEFAULT_MODEL: "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+      TTS_DEFAULT_LANGUAGE: "English"
+      TTS_DEFAULT_SPEAKER: "Ryan"
+      TTS_OUTPUT_FORMAT: "wav"
+      TTS_MAX_NEW_TOKENS: "4096"
+      HF_HOME: "/model_cache"
+      TRANSFORMERS_CACHE: "/model_cache"
+      # Uncomment to enable API key authentication:
+      # TTS_API_KEY: "change-me-before-deploying"
+
+    # ── Resource limits ───────────────────────────────────────────────────────
+    # Prevents the container from consuming all system RAM
+    mem_limit: "28g"
+    shm_size: "2g"    # shared memory for PyTorch data loaders
+
+    # ── Health check ──────────────────────────────────────────────────────────
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s    # allow time for model download on first run
+
+volumes:
+  model_cache:
+    driver: local
