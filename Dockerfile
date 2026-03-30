@@ -52,7 +52,7 @@ ENV TTS_PORT=8000
 ENV TTS_DEVICE=cuda:0
 ENV TTS_DTYPE=bfloat16
 ENV TTS_FLASH_ATTN=1
-ENV TTS_DEFAULT_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice
+ENV TTS_DEFAULT_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
 # Mount /model_cache to persist HuggingFace downloads across container restarts
 ENV HF_HOME=/model_cache
 ENV TRANSFORMERS_CACHE=/model_cache

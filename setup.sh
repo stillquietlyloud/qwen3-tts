@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup.sh – Qwen3-TTS API Server bare-metal setup for Ubuntu 24.04
+# setup.sh – Qwen3-TTS Voice-Design Service setup for Ubuntu 24.04
 #
 # Target hardware: NVIDIA RTX 4070 (12 GB VRAM), 10-core CPU, 32 GB RAM
 #
@@ -86,28 +86,63 @@ info "Model cache directory: ${MODEL_CACHE}"
 info "The model will be downloaded automatically on first server start."
 info "To pre-download now, run:"
 info "  source ${VENV_DIR}/bin/activate"
-info "  huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+info "  huggingface-cli download Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign"
 
-# ── 9. systemd service (optional) ────────────────────────────────────────────
+# ── 9. Environment file for systemd ──────────────────────────────────────────
+ENV_FILE="/etc/qwen3-tts.env"
+if [[ ! -f "${ENV_FILE}" ]]; then
+    info "Creating environment file at ${ENV_FILE} …"
+    cat > "${ENV_FILE}" <<EOF
+# Qwen3-TTS Voice-Design Service Configuration
+# Edit this file and restart the service: systemctl restart qwen3-tts
+TTS_DEFAULT_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign
+TTS_HOST=0.0.0.0
+TTS_PORT=8000
+TTS_DEVICE=cuda:0
+TTS_DTYPE=bfloat16
+TTS_FLASH_ATTN=1
+TTS_DEFAULT_LANGUAGE=English
+TTS_OUTPUT_FORMAT=wav
+TTS_MAX_NEW_TOKENS=4096
+TTS_DEFAULT_VOICE_INSTRUCT=A warm, clear male narrator voice, mid-30s, natural midrange, measured pace, suitable for audiobook narration.
+# Uncomment and set a value to require API key authentication:
+# TTS_API_KEY=change-me-before-deploying
+EOF
+    chmod 600 "${ENV_FILE}"
+    info "Environment file created.  Edit ${ENV_FILE} to customise settings."
+else
+    info "Environment file ${ENV_FILE} already exists."
+fi
+
+# ── 10. systemd service ──────────────────────────────────────────────────────
 SERVICE_FILE="/etc/systemd/system/qwen3-tts.service"
 if [[ ! -f "${SERVICE_FILE}" ]]; then
     info "Installing systemd service …"
     cat > "${SERVICE_FILE}" <<EOF
 [Unit]
-Description=Qwen3-TTS API Server
+Description=Qwen3-TTS Voice-Design API Server
 After=network.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=${SUDO_USER:-$(whoami)}
 WorkingDirectory=${REPO_DIR}
+EnvironmentFile=${ENV_FILE}
 Environment="PATH=${VENV_DIR}/bin:/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin"
-Environment="TTS_DEFAULT_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
-Environment="TTS_HOST=0.0.0.0"
-Environment="TTS_PORT=8000"
 ExecStart=${VENV_DIR}/bin/python -m server.main
 Restart=on-failure
 RestartSec=10
+
+# Performance: give the service full access to GPU resources
+Nice=-5
+LimitMEMLOCK=infinity
+LimitNOFILE=65536
+
+# Security hardening
+ProtectSystem=full
+NoNewPrivileges=true
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
@@ -126,5 +161,7 @@ echo ""
 echo "  Activate venv :  source ${VENV_DIR}/bin/activate"
 echo "  Start server  :  python -m server.main"
 echo "  Or via systemd:  systemctl start qwen3-tts"
+echo "  View logs     :  journalctl -u qwen3-tts -f"
+echo "  Edit config   :  sudo nano ${ENV_FILE}"
 echo "  API docs      :  http://<your-ip>:8000/docs"
 echo ""
